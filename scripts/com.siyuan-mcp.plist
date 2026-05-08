@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS launchd service for siyuan-mcp.
+  Runs the MCP server at login and keeps it alive.
+
+  SETUP STEPS:
+  1. Edit the paths below to match your actual install location.
+  2. Add your SIYUAN_TOKEN to the EnvironmentVariables section.
+  3. Copy to ~/Library/LaunchAgents/com.siyuan-mcp.plist
+  4. Run: launchctl load ~/Library/LaunchAgents/com.siyuan-mcp.plist
+  5. Check logs: tail -f /tmp/siyuan-mcp.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.siyuan-mcp</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <!-- Update this path to your node binary: `which node` -->
+    <string>/usr/local/bin/node</string>
+    <!-- Update this path to where you cloned the repo -->
+    <string>/Users/YOUR_USERNAME/siyuan-mcp/dist/index.js</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SIYUAN_URL</key>
+    <string>http://10.0.0.101:6806</string>
+    <key>SIYUAN_TOKEN</key>
+    <!-- IMPORTANT: Replace with your actual SiYuan API token -->
+    <string>YOUR_SIYUAN_TOKEN_HERE</string>
+  </dict>
+
+  <!-- Restart automatically if it crashes -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Start at login -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Stdout/stderr logs -->
+  <key>StandardOutPath</key>
+  <string>/tmp/siyuan-mcp.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/siyuan-mcp.error.log</string>
+
+  <!-- Wait 5s before restart on crash -->
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+</dict>
+</plist>

@@ -1,0 +1,21 @@
+{
+  "name": "siyuan-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for SiYuan Note — persistent AI memory, read-only reference access, and structured knowledge storage.",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "setup-notebook": "tsx src/setup.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
