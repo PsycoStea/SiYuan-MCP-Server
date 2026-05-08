@@ -130,6 +130,25 @@ export function getToolDefinitions(): ToolDefinition[] {
       },
     },
 
+    // ── READ: Fetch a document by ID ───────────────────────────────────────
+    {
+      name: "siyuan_get_document",
+      description:
+        "Fetch the full markdown content of any SiYuan document by its block ID. " +
+        "Use when you have a specific doc ID and need to read the complete contents. " +
+        "Works across all notebooks including read-only ones.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          doc_id: {
+            type: "string",
+            description: "The SiYuan block ID of the document, e.g. \"20260507173524-lv939k9\"",
+          },
+        },
+        required: ["doc_id"],
+      },
+    },
+
     // ── WRITE: Upsert a memory entry ────────────────────────────────────────
     {
       name: "siyuan_save_memory",
@@ -321,6 +340,26 @@ export async function handleTool(
       };
     }
 
+    // ── siyuan_get_document ─────────────────────────────────────────────────
+    case "siyuan_get_document": {
+      const docId = args.doc_id as string;
+      const exported = await client.exportDocMarkdown(docId);
+      const allNbs = await client.listNotebooks();
+      // Resolve notebook name from hpath prefix isn't reliable; use SQL instead
+      const rows = await client.sql(
+        `SELECT box FROM blocks WHERE id = '${docId.replace(/'/g, "''")}' LIMIT 1`
+      );
+      const notebookId = rows[0]?.box as string | undefined;
+      const nbName = allNbs.find((n) => n.id === notebookId)?.name ?? notebookId ?? "unknown";
+      return {
+        doc_id: docId,
+        notebook: nbName,
+        readonly: notebookId ? client.isReadonly(notebookId) : false,
+        hpath: exported.hPath,
+        content: exported.content,
+      };
+    }
+
     // ── siyuan_get_memory ───────────────────────────────────────────────────
     case "siyuan_get_memory": {
       const category = args.category as Category;
@@ -431,25 +470,11 @@ export async function handleTool(
         notebookId: nb.id,
         expiresAt: Date.now() + PENDING_TTL_MS,
         execute: async () => {
-          // This write is user-approved, so we bypass the guard by using
-          // the raw API endpoint directly
           const existingIds = await client.getDocIdsByHPath(nb.id, document_path);
           if (existingIds && existingIds.length > 0) {
-            await client.appendBlock(
-              // Guard bypassed: user explicitly approved
-              // We call append with a fake bypass by temporarily allowing it.
-              // Note: we can't call guardWrite here because nb.id is readonly.
-              // Instead we use appendBlock on the raw client endpoint.
-              "CONFIRMED_BYPASS_" + nb.id,
-              existingIds[0],
-              content
-            );
+            await client.rawAppendBlock(existingIds[0], content);
           } else {
-            await client.createDoc(
-              "CONFIRMED_BYPASS_" + nb.id,
-              document_path,
-              content
-            );
+            await client.rawCreateDoc(nb.id, document_path, content);
           }
           return { written: true, notebook: notebook_name, path: document_path };
         },

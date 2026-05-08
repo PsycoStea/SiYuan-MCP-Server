@@ -253,22 +253,61 @@ export class SiYuanClient {
     query: string,
     notebookIds?: string[]
   ): Promise<Block[]> {
-    // SiYuan full-text search via SQL on the blocks table
     const notebookFilter =
       notebookIds && notebookIds.length > 0
         ? `AND box IN (${notebookIds.map((id) => `'${id}'`).join(", ")})`
         : "";
 
+    // Split into tokens so "Password Manager" matches regardless of surrounding punctuation.
+    // Each token must appear in either content (block text) or hpath (document title path).
+    const tokens = query
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((t) => t.replace(/'/g, "''"));
+
+    const tokenFilter =
+      tokens.length > 0
+        ? tokens
+            .map((t) => `(content LIKE '%${t}%' OR hpath LIKE '%${t}%')`)
+            .join("\n        AND ")
+        : "1=1";
+
     const stmt = `
       SELECT id, type, content, hpath, box, path, created, updated
       FROM blocks
-      WHERE content LIKE '%${query.replace(/'/g, "''")}%'
+      WHERE ${tokenFilter}
         AND type IN ('d', 'p', 'h', 'l', 'i', 't', 'b')
         ${notebookFilter}
       ORDER BY updated DESC
       LIMIT 20
     `;
     return (await this.sql(stmt)) as Block[];
+  }
+
+  // ─── Confirmed-write bypass (user-approved operations only) ──────────────
+
+  async rawAppendBlock(parentId: string, markdown: string): Promise<string> {
+    const data = await this.request<
+      Array<{ doOperations: Array<{ id: string }> }>
+    >("/api/block/appendBlock", {
+      data: markdown,
+      dataType: "markdown",
+      parentID: parentId,
+    });
+    return data[0]?.doOperations[0]?.id ?? "";
+  }
+
+  async rawCreateDoc(
+    notebookId: string,
+    path: string,
+    markdown: string
+  ): Promise<string> {
+    return await this.request<string>("/api/filetree/createDocWithMd", {
+      notebook: notebookId,
+      path,
+      markdown,
+    });
   }
 
   // ─── Notifications ────────────────────────────────────────────────────────
