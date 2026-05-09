@@ -1,173 +1,118 @@
 # siyuan-mcp
 
-An MCP (Model Context Protocol) server that gives Claude persistent memory and reference access via [SiYuan Note](https://github.com/siyuan-note/siyuan).
+A custom Model Context Protocol (MCP) server that gives [Claude Code](https://claude.ai/code) direct access to a self-hosted [SiYuan](https://b3log.org/siyuan/) knowledge base instance.
 
-## What it does
+## Overview
 
-- **Persistent AI memory** — Claude autonomously saves project context, your preferences, decisions, research, and workflows to a dedicated `AI Memory` notebook in SiYuan. This persists across all future conversations.
-- **Read-only reference** — Claude can proactively search and read your `AI Convos` and `General` notebooks but can never modify them without your explicit confirmation.
-- **Token savings** — instead of re-pasting context at the start of every conversation, Claude loads a structured summary from SiYuan.
+SiYuan is a personal knowledge management system. This MCP server exposes SiYuan's notebooks, documents, and AI Memory store as tools that Claude Code can use during conversations — enabling persistent, structured context across sessions.
 
----
+The server enforces a strict **read-only guard** on protected notebooks (`AI Convos.` and `General`), preventing accidental writes to personal notes while allowing full read access for context retrieval.
 
-## Notebook structure
-
-The server creates and manages one notebook: **AI Memory**
+## Architecture
 
 ```
-AI Memory/
-├── Projects/
-│   └── project::<key>       ← one doc per project
-├── Preferences/
-│   └── preferences::<key>   ← working style, tool choices, etc.
-├── Decisions/
-│   └── decision::<key>      ← decisions + rationale
-├── Research/
-│   └── research::<key>      ← facts and findings
-└── Workflows/
-    └── workflow::<key>       ← recurring task patterns
+Claude Code
+    │  stdio (stdin/stdout)
+    ▼
+siyuan-mcp (Node.js process)
+    │  HTTP + Bearer token
+    ▼
+SiYuan instance (http://10.0.0.101:6806)
 ```
 
-Each document stores a single JSON block for fast, deterministic retrieval. The structure is optimised for AI — not human browsing.
+The server runs as a child process of Claude Code, spawned automatically at session start via `claude mcp`.
 
-Your existing notebooks (`AI Convos`, `General`) are **read-only** at the server level. Any attempted write is blocked unless you explicitly approve a confirmation token.
+## Tools
 
----
+| Tool | Description |
+|------|-------------|
+| `siyuan_search` | Full-text search across all SiYuan notebooks |
+| `siyuan_get_document` | Fetch the full markdown content of a document by block ID |
+| `siyuan_load_context` | Load a summary of all AI Memory entries (lightweight context load) |
+| `siyuan_list_memory` | List all entries in a specific memory category |
+| `siyuan_get_memory` | Fetch a single memory entry by key |
+| `siyuan_save_memory` | Create or update an AI Memory entry |
+| `siyuan_delete_memory` | Delete an AI Memory entry |
+| `siyuan_request_write` | Request permission to write to a notebook (returns a confirmation token) |
+| `siyuan_confirm_write` | Execute a write operation using a valid confirmation token |
+| `siyuan_notify` | Push a notification to the SiYuan desktop UI |
 
-## Prerequisites
+### Memory categories
 
-- Node.js 20+
-- SiYuan Note running and accessible (default: `http://10.0.0.101:6806`)
+`siyuan_list_memory`, `siyuan_get_memory`, and `siyuan_save_memory` all operate within one of five categories:
+
+| Category | Purpose |
+|----------|---------|
+| `Projects` | Active and past projects, status, key context |
+| `Preferences` | User preferences, working style, tool choices |
+| `Decisions` | Architectural and strategic decisions with rationale |
+| `Research` | Findings, evaluations, component research |
+| `Workflows` | Recurring processes, patterns, procedures |
+
+## Project structure
+
+```
+siyuan-mcp/
+├── src/
+│   ├── index.ts              # MCP server init, env vars, request routing
+│   ├── tools.ts              # Tool definitions and handlers
+│   ├── siyuan-client.ts      # SiYuan REST API wrapper + read-only guard
+│   ├── notebook-manager.ts   # AI Memory notebook lifecycle management
+│   └── setup.ts              # One-time notebook bootstrapping script
+├── dist/                     # Compiled output (gitignored)
+├── package.json
+└── tsconfig.json
+```
+
+## Requirements
+
+- Node.js 18+
+- A running SiYuan instance with API access enabled
 - SiYuan API token (Settings → About → API Token)
-
----
 
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/siyuan-mcp.git
+git clone http://10.0.0.123:3000/admin/siyuan-mcp.git
 cd siyuan-mcp
 npm install
 npm run build
 ```
 
-### First-time notebook setup
-
-Run this once to create the `AI Memory` notebook and category structure in SiYuan:
+### Register with Claude Code
 
 ```bash
-SIYUAN_TOKEN=your_token_here npm run setup-notebook
+claude mcp add -s user siyuan-mcp \
+  -e SIYUAN_URL=http://10.0.0.101:6806 \
+  -e SIYUAN_TOKEN=<your-api-token> \
+  -- node /path/to/siyuan-mcp/dist/index.js
 ```
 
----
+## Environment variables
 
-## Running at boot (macOS)
-
-```bash
-chmod +x scripts/install-launchd.sh
-./scripts/install-launchd.sh
-```
-
-This will prompt for your API token, write the launchd plist, and load it. The server will start automatically at every login.
-
-**Useful commands after install:**
-
-```bash
-# Check it's running
-launchctl list | grep siyuan-mcp
-
-# View logs
-tail -f /tmp/siyuan-mcp.log
-tail -f /tmp/siyuan-mcp.error.log
-
-# Stop
-launchctl unload ~/Library/LaunchAgents/com.siyuan-mcp.plist
-
-# Restart
-launchctl kickstart -k gui/$(id -u)/com.siyuan-mcp
-```
-
----
-
-## Connecting to Claude
-
-Add this to your Claude MCP configuration (e.g. `~/.config/claude/mcp.json` or your Claude Desktop config):
-
-```json
-{
-  "mcpServers": {
-    "siyuan": {
-      "command": "node",
-      "args": ["/absolute/path/to/siyuan-mcp/dist/index.js"],
-      "env": {
-        "SIYUAN_URL": "http://10.0.0.101:6806",
-        "SIYUAN_TOKEN": "your_token_here"
-      }
-    }
-  }
-}
-```
-
----
-
-## Available tools
-
-| Tool | Permission | Description |
-|------|-----------|-------------|
-| `siyuan_search` | Read (all notebooks) | Full-text search across all notebooks |
-| `siyuan_get_memory` | Read (AI Memory) | Fetch a specific memory entry |
-| `siyuan_list_memory` | Read (AI Memory) | List all entries in a category |
-| `siyuan_load_context` | Read (AI Memory) | Load all entry summaries (low token cost) |
-| `siyuan_save_memory` | Write (AI Memory only) | Autonomously save/update a memory entry |
-| `siyuan_delete_memory` | Write (AI Memory only) | Delete a memory entry |
-| `siyuan_request_write` | Confirm-required | Request write to a user notebook |
-| `siyuan_confirm_write` | Confirm-required | Approve a pending write operation |
-| `siyuan_notify` | Write (UI only) | Push a notification to SiYuan desktop |
-
----
-
-## Memory schema
-
-Every entry stored by Claude follows this structure:
-
-```json
-{
-  "schema_version": 1,
-  "category": "Projects",
-  "key": "my-app",
-  "title": "My App — Project Context",
-  "created_at": "2026-01-01T00:00:00.000Z",
-  "updated_at": "2026-05-08T12:00:00.000Z",
-  "tags": ["typescript", "backend"],
-  "data": {
-    "status": "active",
-    "stack": ["Node.js", "PostgreSQL"],
-    "goals": "Build a personal finance tracker",
-    "last_discussed": "2026-05-08"
-  }
-}
-```
-
----
-
-## Security notes
-
-- The `SIYUAN_TOKEN` is read from environment variables — never commit it to git.
-- The `.env` file is gitignored. Use `.env.example` as a template.
-- The launchd installer stores the token only in `~/Library/LaunchAgents/com.siyuan-mcp.plist`, which is owned by your user.
-- Write protection for `AI Convos` and `General` is enforced at the API client layer — blocked before any HTTP request is sent.
-
----
+| Variable | Default | Required |
+|----------|---------|----------|
+| `SIYUAN_URL` | `http://10.0.0.101:6806` | No |
+| `SIYUAN_TOKEN` | — | **Yes** |
 
 ## Development
 
 ```bash
-# Run in dev mode (no build step needed)
-SIYUAN_TOKEN=your_token npm run dev
+npm run dev    # Run with tsx (no build step, live reload)
+npm run build  # Compile TypeScript → dist/
+npm start      # Run compiled output
 ```
 
----
+## Protected notebooks
 
-## Licence
+The following SiYuan notebooks are treated as **read-only** by this server:
 
-MIT
+- `AI Convos.` — personal conversation archive
+- `General` — personal project notes and documentation
+
+These can be searched and read freely but any write attempt is blocked at the client layer before an API call is made. To write to these notebooks, use `siyuan_request_write` and `siyuan_confirm_write` with explicit user authorisation.
+
+## Notes
+
+- The AI Memory notebook used by this server is separate from the PostgreSQL AI Memory system. See [postgres-mcp-config](http://10.0.0.123:3000/admin/postgres-mcp-config) for the primary long-term memory store used by Claude Code.
+- The MCP server is spawned as a child process — it starts and stops with each Claude Code session. No persistent daemon is required.
