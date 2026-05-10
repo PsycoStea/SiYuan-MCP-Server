@@ -70,42 +70,25 @@ export class NotebookManager {
   // ─── Initialisation ───────────────────────────────────────────────────────
 
   /**
-   * Ensures the AI Memory notebook and all category documents exist.
-   * Safe to call multiple times — idempotent.
+   * Finds the AI Memory notebook if it exists. Does NOT create it.
+   * Memory is now stored in PostgreSQL — the SiYuan notebook is no longer used.
+   * Returns the notebook ID if found, or null if the notebook has been deleted.
    */
-  async init(): Promise<string> {
+  async init(): Promise<string | null> {
     const notebooks = await this.client.listNotebooks();
-    let nb = notebooks.find((n) => n.name === AI_NOTEBOOK_NAME);
+    const nb = notebooks.find((n) => n.name === AI_NOTEBOOK_NAME);
 
     if (!nb) {
-      nb = await this.client.createNotebook(AI_NOTEBOOK_NAME);
-      console.error(`[siyuan-mcp] Created notebook: ${AI_NOTEBOOK_NAME}`);
+      console.error(`[siyuan-mcp] AI Memory notebook not found — memory has moved to PostgreSQL`);
+      return null;
     }
 
     this.notebookId = nb.id;
-
-    // Ensure all category index documents exist
-    for (const cat of CATEGORIES) {
-      const indexPath = `/${cat}/_index`;
-      const existing = await this.client.getDocIdsByHPath(
-        this.notebookId,
-        `/${cat}/_index`
-      );
-      if (!existing || existing.length === 0) {
-        await this.client.createDoc(
-          this.notebookId,
-          indexPath,
-          this.renderCategoryIndex(cat)
-        );
-        console.error(`[siyuan-mcp] Created category index: ${cat}`);
-      }
-    }
-
     return this.notebookId;
   }
 
   getNotebookId(): string {
-    if (!this.notebookId) throw new Error("NotebookManager not initialised");
+    if (!this.notebookId) throw new Error("AI Memory notebook not available — memory has moved to PostgreSQL");
     return this.notebookId;
   }
 

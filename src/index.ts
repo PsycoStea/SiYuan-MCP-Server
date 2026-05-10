@@ -105,9 +105,13 @@ async function main() {
   await client.initReadonlyGuard();
   console.error("[siyuan-mcp] Read-only guards loaded.");
 
-  // Ensure AI Memory notebook and category structure exists
+  // Find AI Memory notebook if it exists (no longer auto-created — memory moved to PostgreSQL)
   const notebookId = await manager.init();
-  console.error(`[siyuan-mcp] AI Memory notebook ready (${notebookId})`);
+  if (notebookId) {
+    console.error(`[siyuan-mcp] AI Memory notebook found (${notebookId})`);
+  } else {
+    console.error("[siyuan-mcp] AI Memory notebook not present — PostgreSQL memory in use");
+  }
 
   // Start MCP server over stdio
   const transport = new StdioServerTransport();
