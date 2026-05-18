@@ -285,6 +285,24 @@ export class SiYuanClient {
     return (await this.sql(stmt)) as Block[];
   }
 
+  // ─── Confirmed-delete bypass (user-approved operations only) ────────────
+
+  async rawDeleteBlock(blockId: string): Promise<void> {
+    await this.request("/api/block/deleteBlock", { id: blockId });
+  }
+
+  async rawRemoveDocById(docId: string): Promise<void> {
+    await this.request("/api/filetree/removeDocByID", { id: docId });
+  }
+
+  async rawRemoveDoc(notebookId: string, path: string): Promise<void> {
+    await this.request("/api/filetree/removeDoc", { notebook: notebookId, path });
+  }
+
+  async rawRemoveNotebook(notebookId: string): Promise<void> {
+    await this.request("/api/notebook/removeNotebook", { notebook: notebookId });
+  }
+
   // ─── Confirmed-write bypass (user-approved operations only) ──────────────
 
   async rawAppendBlock(parentId: string, markdown: string): Promise<string> {

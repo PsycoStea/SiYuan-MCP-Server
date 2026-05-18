@@ -252,11 +252,47 @@ export function getToolDefinitions(): ToolDefinition[] {
       },
     },
 
-    // ── CONFIRM-REQUIRED: Confirm a pending write ───────────────────────────
+    // ── CONFIRM-REQUIRED: Request deletion of a block/doc/notebook ─────────
+    {
+      name: "siyuan_request_delete",
+      description:
+        "Request permission to delete a block, document, or notebook. " +
+        "Returns a confirmation token that must be approved via siyuan_confirm_write. " +
+        "Only use when the user explicitly asks you to delete something.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["block", "doc", "notebook"],
+            description: "What to delete: a single block, a document, or an entire notebook",
+          },
+          operation_description: {
+            type: "string",
+            description: "Plain-English description of exactly what will be deleted",
+          },
+          block_id: {
+            type: "string",
+            description: "Block ID to delete (required when type=block)",
+          },
+          doc_id: {
+            type: "string",
+            description: "Document block ID to delete (required when type=doc)",
+          },
+          notebook_name: {
+            type: "string",
+            description: "Notebook name to delete (required when type=notebook)",
+          },
+        },
+        required: ["type", "operation_description"],
+      },
+    },
+
+    // ── CONFIRM-REQUIRED: Confirm a pending write or delete ─────────────────
     {
       name: "siyuan_confirm_write",
       description:
-        "Confirm and execute a previously requested write operation using its token. " +
+        "Confirm and execute a previously requested write or delete operation using its token. " +
         "Only call after the user has explicitly approved the operation.",
       inputSchema: {
         type: "object",
@@ -489,6 +525,75 @@ export async function handleTool(
           `Operation: ${operation_description}\n` +
           `Notebook: ${notebook_name} (read-only)\n` +
           `Path: ${document_path}\n\n` +
+          `To approve, call siyuan_confirm_write with token: ${token}\n` +
+          `This token expires in 5 minutes.`,
+      };
+    }
+
+    // ── siyuan_request_delete ───────────────────────────────────────────────
+    case "siyuan_request_delete": {
+      const {
+        type: deleteType,
+        operation_description: deleteDesc,
+        block_id,
+        doc_id,
+        notebook_name: del_notebook_name,
+      } = args as {
+        type: "block" | "doc" | "notebook";
+        operation_description: string;
+        block_id?: string;
+        doc_id?: string;
+        notebook_name?: string;
+      };
+
+      let executeDelete: () => Promise<unknown>;
+      let targetSummary: string;
+
+      if (deleteType === "block") {
+        if (!block_id) return { success: false, error: "block_id is required when type=block" };
+        targetSummary = `block ${block_id}`;
+        executeDelete = async () => {
+          await client.rawDeleteBlock(block_id);
+          return { deleted: true, type: "block", id: block_id };
+        };
+      } else if (deleteType === "doc") {
+        if (!doc_id) return { success: false, error: "doc_id is required when type=doc" };
+        targetSummary = `document ${doc_id}`;
+        executeDelete = async () => {
+          await client.rawRemoveDocById(doc_id);
+          return { deleted: true, type: "doc", id: doc_id };
+        };
+      } else if (deleteType === "notebook") {
+        if (!del_notebook_name) return { success: false, error: "notebook_name is required when type=notebook" };
+        const allNbs = await client.listNotebooks();
+        const nb = allNbs.find((n) => n.name === del_notebook_name);
+        if (!nb) return { success: false, error: `Notebook "${del_notebook_name}" not found` };
+        targetSummary = `notebook "${del_notebook_name}" (${nb.id})`;
+        executeDelete = async () => {
+          await client.rawRemoveNotebook(nb.id);
+          return { deleted: true, type: "notebook", name: del_notebook_name, id: nb.id };
+        };
+      } else {
+        return { success: false, error: `Unknown delete type: ${deleteType}` };
+      }
+
+      const token = generateToken();
+      pendingOps.set(token, {
+        description: deleteDesc,
+        notebookId: "",
+        expiresAt: Date.now() + PENDING_TTL_MS,
+        execute: executeDelete,
+      });
+
+      return {
+        pending: true,
+        token,
+        expires_in_minutes: 5,
+        message:
+          `⚠️ DELETE CONFIRMATION REQUIRED\n\n` +
+          `Operation: ${deleteDesc}\n` +
+          `Target: ${targetSummary}\n\n` +
+          `⚡ THIS CANNOT BE UNDONE.\n\n` +
           `To approve, call siyuan_confirm_write with token: ${token}\n` +
           `This token expires in 5 minutes.`,
       };
